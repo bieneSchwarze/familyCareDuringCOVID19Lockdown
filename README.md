@@ -1,5 +1,5 @@
 Here you can find the source code of the R programs used for data analysis for the manuscript 
-"Family care during the COVID-19 lockdown: determinants and consequences for subjective well-being and health" 
+**"Family care during the COVID-19 lockdown: determinants and consequences for subjective well-being and health"** 
 by Katja Möhring, Sabine Zinn, Ulrike Ehrlich.
 
 The source codes can be found in two data files: 
