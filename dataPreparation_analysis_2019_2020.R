@@ -9,7 +9,7 @@
 ## for balanced panel 2019 - 2020
 ##
 ##
-## SZ, 21.06.2021
+## SZ, 20.06.2022
 ##
 ###############################################################################################
 ###############################################################################################
@@ -599,51 +599,22 @@ imp <- mice::mice(CTI, m=20, predictorMatrix=predM, method=impM, maxit=20,seed=2
 imp$loggedEvents # ok
 
 #################################################################
-# D. Fixed Effects
+# D. Fixed Effects Regression
+# Separate Models for continuing caregivers, new caregivers, noncaregivers
 #################################################################
-
-# Function to pool results
-poolIt <- function(modList, n){
-  #n <- nrow(DAT_long_i)
-  #modList <- modList
-  m <- length(modList)
-  betas <- NULL
-  vars <- NULL
-  for(i in 1:m){
-    #i <- 1
-    mi <- summary(modList[[i]])
-    betas <- cbind(betas, as.numeric(coef(mi)[,1]))
-    #vars_within <- diag(vcovHC(modList[[i]], method="white1"))
-    vars <- cbind(vars, as.numeric(coef(mi)[,2]^2)) 
-  }
-  rownames(betas) <- names(coef(mi)[,1])
-  rownames(vars) <- names(coef(mi)[,1])  
-  betasPool <- apply(betas, 1, mean)
-  varWithin <- apply(vars, 1, mean)
-  varBetween <- apply((betas - betasPool)^2, 1, sum)/(n-1)
-  varTotal <- varWithin + varBetween + varBetween/m
-  seTotal <- sqrt(varTotal)
-  lambda <- (varBetween + (varBetween / m))/(varTotal)
-  dfold <- (m-1)/lambda^2
-  k <- length(betasPool)
-  dfobserved <- ((n-k)+1)/((n-k)+3) * (n-k)*(1-lambda) 
-  dfadjusted <- (dfold*dfobserved)/(dfold+dfobserved)
-  alpha <- 0.1
-  td <- qt(1-alpha/2, dfadjusted)
-  ci_low <- betasPool - td*seTotal
-  ci_up <- betasPool + td*seTotal
-  res <- round(cbind( betasPool, ci_low, ci_up),3)
-  rownames(res) <- rownames(betas)
-  return(res)
-}
 
 # --------------------------------------------------------------
 # D.1 DV Depression Score for 2019, 2020 (using imputed data)
 # --------------------------------------------------------------
 
 # Do analysis separately for each imputed data set
-modList <- vector(length=imp$m, mode="list") 
-modList_Pred <- vector(length=imp$m, mode="list") 
+modList_nonCarers <- vector(length=imp$m, mode="list") 
+modList_contCarers <- vector(length=imp$m, mode="list") 
+modList_newCarers <- vector(length=imp$m, mode="list") 
+rsq_noCarers <- rep(NA,imp$m)
+rsq_contCarers <- rep(NA,imp$m)
+rsq_newCarers <- rep(NA,imp$m)
+
 for(i in 1:imp$m){
   
   cat("Imp.It: ",i,"\n")
@@ -659,45 +630,92 @@ for(i in 1:imp$m){
   colnames(DAT_fe_i)[9:10] <- c("worriesEcon.2019", "worriesEcon.2020") 
   colnames(DAT_fe_i)[11:12] <- c("depress.2019", "depress.2020")
   colnames(DAT_fe_i)[13:14] <- c("lifeSatis.2019", "lifeSatis.2020")
+  
+  DAT_fe_i$group <- ifelse(DAT_fe_i$careTime.2019 %in% 0 & DAT_fe_i$careTime.2020 %in% 0, 1, 
+                           ifelse(DAT_fe_i$careTime.2019 > 0 & DAT_fe_i$careTime.2020 > 0, 2,
+                                  ifelse(DAT_fe_i$careTime.2019 %in% 0 & DAT_fe_i$careTime.2020 > 0,3,4))) # 1: noncarers, 2: cont. carers, 3: new carers 
+  
   DAT_long_i <- reshape(DAT_fe_i, idvar="pid", direction ="long", varying=list(c(5,6),c(7,8),c(9,10), c(11,12), c(13,14)),
                         v.names=c("careTime", "employ", "worriesEcon", "depress", "lifeSatis"))  
-  DAT_long_i$careCat <- ifelse(is.na(DAT_long_i$careTime), NA, ifelse(DAT_long_i$careTime <1, 0, ifelse(DAT_long_i$careTime <=2, 1, 2)))
+  DAT_long_i$noCare_dum <- ifelse(DAT_long_i$careTime <1, 1, 0)  
+  DAT_long_i$lowCare_dum <- ifelse(DAT_long_i$careTime >=1 & DAT_long_i$careTime <=2, 1, 0)    
+  DAT_long_i$highCare_dum <- ifelse(DAT_long_i$careTime >2, 1, 0)   
   DAT_long_i <- DAT_long_i[order(DAT_long_i$pid),]
-  DAT_long_i$time <- as.factor(DAT_long_i$time)
-  DAT_long_i$time <- relevel(DAT_long_i$time, ref="1")
-  DAT_long_i$employ <- as.factor(DAT_long_i$employ)
-  DAT_long_i$employ <- relevel(DAT_long_i$employ, ref="employed")
-  DAT_long_i$worriesEcon <- as.factor(DAT_long_i$worriesEcon)
-  DAT_long_i$worriesEcon <- relevel(DAT_long_i$worriesEcon, ref="3")
-  DAT_long_i$timeCare <- ifelse(is.na(DAT_long_i$careCat), NA, 
-                                  ifelse(DAT_long_i$time %in% 1 & DAT_long_i$careCat %in% 0, 0,                      
-                                     ifelse(DAT_long_i$time %in% 1 & DAT_long_i$careCat %in% 1, 0, 
-                                        ifelse(DAT_long_i$time %in% 1 & DAT_long_i$careCat %in% 2, 0,   
-                                          ifelse(DAT_long_i$time %in% 2 & DAT_long_i$careCat %in% 0, 0,                        
-                                            ifelse(DAT_long_i$time %in% 2 & DAT_long_i$careCat %in% 1, 1, 
-                                               ifelse(DAT_long_i$time %in% 2 & DAT_long_i$careCat %in% 2, 2, NA)))))))                             
-  MODEL_i <- plm(depress  ~  time + employ + worriesEcon + as.factor(careCat) + as.factor(timeCare), 
-                 model = "within", index=c("pid","time"),
-                 data = DAT_long_i)
-  #summary(MODEL_i, vcov=vcovHC(MODEL_i, method="white1"))   
-  modList[[i]] <- MODEL_i 
+  DAT_long_i$time <- ifelse(DAT_long_i$time %in% 1,0,1)
+  DAT_long_i$empl_dum <- ifelse(DAT_long_i$employ %in% "employed", 1, 0)    
+  DAT_long_i$noEmpl_dum <- ifelse(DAT_long_i$employ %in% "nonemployed", 1, 0)      
+  DAT_long_i$unEmpl_dum <- ifelse(DAT_long_i$employ %in% "unemployed", 1, 0)      
+  DAT_long_i$noWorr_dum <- ifelse(DAT_long_i$worriesEcon %in% 3, 1, 0)    # 1: grave worries, 2: some worries, 3: no worries
+  DAT_long_i$lowWorr_dum <- ifelse(DAT_long_i$worriesEcon %in% 2, 1, 0)      
+  DAT_long_i$highWorr_dum <- ifelse(DAT_long_i$worriesEcon %in% 1, 1, 0)       
+  DAT_long_i$age2019 <- 2019 - DAT_long_i$gebjahr
+  DAT_long_i$birthyearCat <- ifelse(DAT_long_i$age2019<41,0,ifelse(DAT_long_i$age2019<61,1,2)) 
+  
+  DAT_long_i_noCarer <- DAT_long_i[DAT_long_i$group %in% 1,]
+  mod_noCar <- plm(depress  ~  time + as.factor(birthyearCat) + as.factor(sex) + # 1: male, 2: female, 
+                     + unEmpl_dum + noEmpl_dum + 
+                     + lowWorr_dum + highWorr_dum, 
+                   data=DAT_long_i_noCarer, model="within", index=c("pid","time"))
+  modList_nonCarers[[i]] <- mod_noCar
+  rsq_noCarers[i] <- summary(mod_noCar)$r.squared["rsq"]
+  
+  DAT_long_i_contCarer <- DAT_long_i[DAT_long_i$group %in% 2,]
+  mod_contCar <- plm(depress  ~  time + as.factor(birthyearCat) + as.factor(sex) + # 1: male, 2: female, 
+                       + highCare_dum +
+                       + unEmpl_dum + noEmpl_dum + 
+                       + lowWorr_dum + highWorr_dum, 
+                     data=DAT_long_i_contCarer, model="within", index=c("pid","time"))
+  modList_contCarers[[i]] <- mod_contCar
+  rsq_contCarers[i] <- summary(mod_noCar)$r.squared["rsq"]
+  
+  DAT_long_i_newCarer <- DAT_long_i[DAT_long_i$group %in% 3,]
+  mod_newCar <- plm(depress  ~  time + as.factor(birthyearCat) + as.factor(sex) + # 1: male, 2: female, 
+                      + highCare_dum + 
+                      + unEmpl_dum + noEmpl_dum + 
+                      + lowWorr_dum + highWorr_dum, 
+                    data=DAT_long_i_newCarer, model="within", index=c("pid","time"))
+  modList_newCarers[[i]] <- mod_newCar
+  rsq_newCarers[i] <- summary(mod_newCar)$r.squared["rsq"]
+  
   cat("\n ------------- \n")
 }
 n <- nrow(CT)
-res <- poolIt(modList, n)
-round(res,2)
-rs <- rep(NA, imp$m); for(i in 1:imp$m) {rs[i] <- summary(modList[[i]])$r.squared[1]}; mean(rs)
+# noncaregivers
+res_nonCar_Depr_2020 <- summary(pool(as.mira(modList_nonCarers)), conf.int = TRUE)
+res_nonCar <- cbind.data.frame(res_nonCar_Depr_2020[,1], round(res_nonCar_Depr_2020[,"estimate"],2), 
+                               round(res_nonCar_Depr_2020[,"2.5 %"],2), round(res_nonCar_Depr_2020[,"97.5 %"],2))
+colnames(res_nonCar) <- c("Var", "Est", "CIlow", "CIup")
+res_nonCar
+mean(rsq_noCarers)
+# continuing caregivers
+res_contCar_Depr_2020 <- summary(pool(as.mira(modList_contCarers)), conf.int = TRUE)
+res_contCar <- cbind.data.frame(res_contCar_Depr_2020[,1], round(res_contCar_Depr_2020[,"estimate"],2), 
+                                round(res_contCar_Depr_2020[,"2.5 %"],2), round(res_contCar_Depr_2020[,"97.5 %"],2))
+colnames(res_contCar) <- c("Var", "Est", "CIlow", "CIup")
+res_contCar
+mean(rsq_contCarers)
+# new caregivers
+res_newCar_Depr_2020 <- summary(pool(as.mira(modList_newCarers)), conf.int = TRUE)
+res_newCar <- cbind.data.frame(res_newCar_Depr_2020[,1], round(res_newCar_Depr_2020[,"estimate"],2), 
+                               round(res_newCar_Depr_2020[,"2.5 %"],2), round(res_newCar_Depr_2020[,"97.5 %"],2))
+colnames(res_newCar) <- c("Var", "Est", "CIlow", "CIup")
+res_newCar
+mean(rsq_newCarers)
 
 # --------------------------------------------------------------
-# D.2 DV Life satisfaction for 2019, 2020 (using imputed data)
+# D.2 DV Life Satisfaction for 2019, 2020 (using imputed data)
 # --------------------------------------------------------------
 
 # Do analysis separately for each imputed data set
-modList <- vector(length=imp$m, mode="list") 
-modList_Pred <- vector(length=imp$m, mode="list") 
-for(i in 1:imp$m){
+modList_nonCarers <- vector(length=imp$m, mode="list") 
+modList_contCarers <- vector(length=imp$m, mode="list") 
+modList_newCarers <- vector(length=imp$m, mode="list") 
+rsq_noCarers <- rep(NA,imp$m)
+rsq_contCarers <- rep(NA,imp$m)
+rsq_newCarers <- rep(NA,imp$m)
 
-  #i <- 1  
+for(i in 1:imp$m){
+  
   cat("Imp.It: ",i,"\n")
   D_i <- complete(imp, action=i)
   DAT_fe_i <- D_i[,c("pid", "sex", "gebjahr", "phrf_cati_SOEPCoV", 
@@ -711,32 +729,74 @@ for(i in 1:imp$m){
   colnames(DAT_fe_i)[9:10] <- c("worriesEcon.2019", "worriesEcon.2020") 
   colnames(DAT_fe_i)[11:12] <- c("depress.2019", "depress.2020")
   colnames(DAT_fe_i)[13:14] <- c("lifeSatis.2019", "lifeSatis.2020")
+  
+  DAT_fe_i$group <- ifelse(DAT_fe_i$careTime.2019 %in% 0 & DAT_fe_i$careTime.2020 %in% 0, 1, 
+                           ifelse(DAT_fe_i$careTime.2019 > 0 & DAT_fe_i$careTime.2020 > 0, 2,
+                                  ifelse(DAT_fe_i$careTime.2019 %in% 0 & DAT_fe_i$careTime.2020 > 0,3,4))) # 1: noncarers, 2: cont. carers, 3: new carers 
+  
   DAT_long_i <- reshape(DAT_fe_i, idvar="pid", direction ="long", varying=list(c(5,6),c(7,8),c(9,10), c(11,12), c(13,14)),
                         v.names=c("careTime", "employ", "worriesEcon", "depress", "lifeSatis"))  
-  DAT_long_i$careCat <- ifelse(is.na(DAT_long_i$careTime), NA, ifelse(DAT_long_i$careTime <1, 0, ifelse(DAT_long_i$careTime <=2, 1, 2)))
+  DAT_long_i$noCare_dum <- ifelse(DAT_long_i$careTime <1, 1, 0)  
+  DAT_long_i$lowCare_dum <- ifelse(DAT_long_i$careTime >=1 & DAT_long_i$careTime <=2, 1, 0)    
+  DAT_long_i$highCare_dum <- ifelse(DAT_long_i$careTime >2, 1, 0)   
   DAT_long_i <- DAT_long_i[order(DAT_long_i$pid),]
-  DAT_long_i$time <- as.factor(DAT_long_i$time)
-  DAT_long_i$time <- relevel(DAT_long_i$time, ref="1")
-  DAT_long_i$employ <- as.factor(DAT_long_i$employ)
-  DAT_long_i$employ <- relevel(DAT_long_i$employ, ref="employed")
-  DAT_long_i$worriesEcon <- as.factor(DAT_long_i$worriesEcon)
-  DAT_long_i$worriesEcon <- relevel(DAT_long_i$worriesEcon, ref="3")
-  DAT_long_i$timeCare <- ifelse(is.na(DAT_long_i$careCat), NA, 
-                                ifelse(DAT_long_i$time %in% 1 & DAT_long_i$careCat %in% 0, 0,                      
-                                       ifelse(DAT_long_i$time %in% 1 & DAT_long_i$careCat %in% 1, 0, 
-                                              ifelse(DAT_long_i$time %in% 1 & DAT_long_i$careCat %in% 2, 0,   
-                                                     ifelse(DAT_long_i$time %in% 2 & DAT_long_i$careCat %in% 0, 0,                        
-                                                            ifelse(DAT_long_i$time %in% 2 & DAT_long_i$careCat %in% 1, 1, 
-                                                                   ifelse(DAT_long_i$time %in% 2 & DAT_long_i$careCat %in% 2, 2, NA)))))))                             
-  MODEL_i <- plm(lifeSatis  ~  time + employ + worriesEcon + as.factor(careCat) + as.factor(timeCare), 
-                 model = "within", index=c("pid","time"),
-                 data = DAT_long_i)
-  #summary(MODEL_i, vcov=vcovHC(MODEL_i, method="white1"))   
-  modList[[i]] <- MODEL_i 
-  cat("\n ------------- \n")  
+  DAT_long_i$time <- ifelse(DAT_long_i$time %in% 1,0,1)
+  DAT_long_i$empl_dum <- ifelse(DAT_long_i$employ %in% "employed", 1, 0)    
+  DAT_long_i$noEmpl_dum <- ifelse(DAT_long_i$employ %in% "nonemployed", 1, 0)      
+  DAT_long_i$unEmpl_dum <- ifelse(DAT_long_i$employ %in% "unemployed", 1, 0)      
+  DAT_long_i$noWorr_dum <- ifelse(DAT_long_i$worriesEcon %in% 3, 1, 0)    # 1: grave worries, 2: some worries, 3: no worries
+  DAT_long_i$lowWorr_dum <- ifelse(DAT_long_i$worriesEcon %in% 2, 1, 0)      
+  DAT_long_i$highWorr_dum <- ifelse(DAT_long_i$worriesEcon %in% 1, 1, 0)       
+  DAT_long_i$age2019 <- 2019 - DAT_long_i$gebjahr
+  DAT_long_i$birthyearCat <- ifelse(DAT_long_i$age2019<41,0,ifelse(DAT_long_i$age2019<61,1,2)) 
+  
+  DAT_long_i_noCarer <- DAT_long_i[DAT_long_i$group %in% 1,]
+  mod_noCar <- plm(lifeSatis  ~  time + as.factor(birthyearCat) + as.factor(sex) + # 1: male, 2: female, 
+                     + unEmpl_dum + noEmpl_dum + 
+                     + lowWorr_dum + highWorr_dum, 
+                   data=DAT_long_i_noCarer, model="within", index=c("pid","time"))
+  modList_nonCarers[[i]] <- mod_noCar
+  rsq_noCarers[i] <- summary(mod_noCar)$r.squared["rsq"]
+  
+  DAT_long_i_contCarer <- DAT_long_i[DAT_long_i$group %in% 2,]
+  mod_contCar <- plm(lifeSatis  ~  time + as.factor(birthyearCat) + as.factor(sex) + # 1: male, 2: female, 
+                       + highCare_dum +
+                       + unEmpl_dum + noEmpl_dum + 
+                       + lowWorr_dum + highWorr_dum, 
+                     data=DAT_long_i_contCarer, model="within", index=c("pid","time"))
+  modList_contCarers[[i]] <- mod_contCar
+  rsq_contCarers[i] <- summary(mod_noCar)$r.squared["rsq"]
+  
+  DAT_long_i_newCarer <- DAT_long_i[DAT_long_i$group %in% 3,]
+  mod_newCar <- plm(lifeSatis  ~  time + as.factor(birthyearCat) + as.factor(sex) + # 1: male, 2: female, 
+                      + highCare_dum + 
+                      + unEmpl_dum + noEmpl_dum + 
+                      + lowWorr_dum + highWorr_dum, 
+                    data=DAT_long_i_newCarer, model="within", index=c("pid","time"))
+  modList_newCarers[[i]] <- mod_newCar
+  rsq_newCarers[i] <- summary(mod_newCar)$r.squared["rsq"]
+  
+  cat("\n ------------- \n")
 }
-
 n <- nrow(CT)
-res <- poolIt(modList, n)
-round(res,2)
-rs <- rep(NA, imp$m); for(i in 1:imp$m) {rs[i] <- summary(modList[[i]])$r.squared[1]}; mean(rs)
+# noncaregivers
+res_nonCar_LifeSatis_2020 <- summary(pool(as.mira(modList_nonCarers)), conf.int = TRUE)
+res_nonCar <- cbind.data.frame(res_nonCar_LifeSatis_2020[,1], round(res_nonCar_LifeSatis_2020[,"estimate"],2), 
+                               round(res_nonCar_Depr_2020[,"2.5 %"],2), round(res_nonCar_Depr_2020[,"97.5 %"],2))
+colnames(res_nonCar) <- c("Var", "Est", "CIlow", "CIup")
+res_nonCar
+mean(rsq_noCarers)
+# continuing caregivers
+res_contCar_LifeSatis_2020 <- summary(pool(as.mira(modList_contCarers)), conf.int = TRUE)
+res_contCar <- cbind.data.frame(res_contCar_LifeSatis_2020[,1], round(res_contCar_LifeSatis_2020[,"estimate"],2), 
+                                round(res_contCar_LifeSatis_2020[,"2.5 %"],2), round(res_contCar_LifeSatis_2020[,"97.5 %"],2))
+colnames(res_contCar) <- c("Var", "Est", "CIlow", "CIup")
+res_contCar
+mean(rsq_contCarers)
+# new caregivers
+res_newCar_LifeSatis_2020 <- summary(pool(as.mira(modList_newCarers)), conf.int = TRUE)
+res_newCar <- cbind.data.frame(res_newCar_LifeSatis_2020[,1], round(res_newCar_LifeSatis_2020[,"estimate"],2), 
+                               round(res_newCar_LifeSatis_2020[,"2.5 %"],2), round(res_newCar_LifeSatis_2020[,"97.5 %"],2))
+colnames(res_newCar) <- c("Var", "Est", "CIlow", "CIup")
+res_newCar
+mean(rsq_newCarers)
