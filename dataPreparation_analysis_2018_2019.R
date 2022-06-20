@@ -604,7 +604,6 @@ for(i in 1:imp$m){
   
   cat("Imp.It: ",i,"\n")
   D_i <- complete(imp, action=i)
-  D_i <- D_i[!(D_i$psample %in% c(20,21)),] # take out samples N and O (no measurement in 2016 of depression score, at this time samples N and O were not yet part of SOEP)
   DAT_fe_i <- D_i[,c("pid", "sex", "gebjahr", "bjphrf", 
                      "careTime_2018", "careTime_2019", 
                      "employ_2018", "employ_2019", 
